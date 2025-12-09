@@ -13,3 +13,6 @@ def get_extraction_engine() -> ExtractionEngine:
 def get_analyze_service() -> AnalyzeService:
     engine = get_extraction_engine()
     return AnalyzeServiceImpl(extraction_engine=engine)
+
+
+

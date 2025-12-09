@@ -9,8 +9,6 @@ router = APIRouter()
 
 @router.post("/upload")
 async def upload(files: List[UploadFile] = File(...), analyze_service: AnalyzeService = Depends(get_analyze_service)):
-    # 📌 Pre-Leer los archivos antes de entrar al generador
-    # Esto evita el error "I/O operation on closed file"
     files_data = []
     for file in files:
         content = await file.read()

@@ -16,9 +16,7 @@ class AnalyzeServiceImpl(AnalyzeService):
         self.extraction_engine = extraction_engine
 
 
-    # --------------------------
-    #   UPLOAD NORMAL (no stream)
-    # --------------------------
+ 
     async def upload(self, t: List[UploadFile]) -> List[Dict[str, Any]]:
         results = []
 
@@ -48,14 +46,10 @@ class AnalyzeServiceImpl(AnalyzeService):
         return results
 
 
-    # --------------------------
-    #   UPLOAD STREAMING
-    # --------------------------
     async def upload_stream(self, files_data: List[Dict[str, Any]]):
         all_pages = []
         total_files = len(files_data)
 
-        # 1. Procesar todos los archivos y acumular páginas
         for idx, file_data in enumerate(files_data):
             filename = file_data.get("filename")
             content = file_data.get("content")
@@ -70,7 +64,6 @@ class AnalyzeServiceImpl(AnalyzeService):
 
             all_pages.extend(pages)
 
-        # 2. Enviar todas las imágenes al motor de extracción en una sola petición
         if not all_pages:
              yield "data: [ERROR] No se encontraron imágenes válidas para analizar.\n\n"
              return
@@ -83,13 +76,9 @@ class AnalyzeServiceImpl(AnalyzeService):
         yield "data: [OK] Análisis completado.\n\n"
 
 
-    # --------------------------
-    #   Helper: convertir a base64 desde bytes
-    # --------------------------
     def to_base64_from_bytes(self, content: bytes, filename: str) -> List[str]:
         base64_results = []
 
-        # 📌 Validación PDF
         if FileUtil.is_valid_pdf(content):
             try:
                 doc = fitz.open(stream=BytesIO(content), filetype="pdf")
@@ -103,7 +92,6 @@ class AnalyzeServiceImpl(AnalyzeService):
                 print(f"Error procesando PDF: {e}")
                 return []
 
-        # 📌 Validación Imagen
         elif FileUtil.is_valid_image(content):
             base64_results.append(base64.b64encode(content).decode("utf-8"))
 
