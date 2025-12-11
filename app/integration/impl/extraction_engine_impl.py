@@ -27,6 +27,7 @@ El objeto "fields" es OBLIGATORIO y debe contener todos los datos clave detectad
 Prioriza la fidelidad de los datos extraídos.
 NO respondas con texto plano, solo JSON válido.
 NO aplanes la estructura.
+IMPORTANTE: dame un objeto dentro de documents por cada imagen proporcionada.
 """,
             "images": base64_images,
             "stream": True,
