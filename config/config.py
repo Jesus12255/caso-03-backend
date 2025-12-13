@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
 
     LLM_API_KEY: str = "df0b6c7119ed4e3a846c7c66f1c88197.Sf7w0bChqTnDqGuUQSJ8UIfd" 
-    LLM_BASE_URL: str = "http://localhost:11434/api" 
+    LLM_BASE_URL: str = "https://ollama.com/api" 
     LLM_MODEL_NAME: str = "qwen3-vl:235b-cloud"
 
     model_config = SettingsConfigDict(
