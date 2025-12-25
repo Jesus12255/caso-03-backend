@@ -24,7 +24,7 @@ class DocumentRepositoryImpl(DocumentRepository):
             raise e
 
     async def find_all(self) -> list[Document]:
-        result = await self.db.execute(select(Document))
+        result = await self.db.execute(select(Document).order_by(Document.created.desc()))
         return result.scalars().all()
 
     async def find_by_id(self, id):
@@ -40,3 +40,10 @@ class DocumentRepositoryImpl(DocumentRepository):
         await self.db.delete(doc)
         await self.db.commit()
         return True
+
+    async def update(self, id, is_anonymized: bool) -> bool:
+        from sqlalchemy import update
+        stmt = update(Document).where(Document.document_id == id).values(is_anonymized=is_anonymized)
+        result = await self.db.execute(stmt)
+        await self.db.commit()
+        return result.rowcount > 0

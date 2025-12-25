@@ -19,3 +19,12 @@ class DocumentServiceImpl(DocumentService):
         document.file_name = t.fileName
         document.is_anonymized = t.isAnonymized 
         await self.document_repository.save(document)
+
+    async def find_all(self):
+        return await self.document_repository.find_all()
+
+    async def delete(self, id: str):
+        return await self.document_repository.delete(id)
+
+    async def update(self, id: str, t: DocumentRequest):
+        return await self.document_repository.update(id, t.isAnonymized)

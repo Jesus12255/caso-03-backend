@@ -19,3 +19,7 @@ class DocumentRepository(ABC):
     @abstractmethod
     async def delete(self, id) -> bool:
         pass
+
+    @abstractmethod
+    async def update(self, id, is_anonymized: bool) -> bool:
+        pass

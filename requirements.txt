@@ -11,3 +11,4 @@ pillow==10.2.0
 sqlalchemy
 psycopg2-binary
 asyncpg
+google-generativeai
