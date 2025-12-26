@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     BACKEND_CORS_ORIGINS: List[str] = ["*"]
     LOG_LEVEL: str = "INFO"
 
-    LLM_API_KEY: str = "AIzaSyBubJog4BJoN2PwkBtyg7P5c_iivYZoHts" 
+    LLM_API_KEY: str # Value will be loaded from .env file
     # LLM_BASE_URL no longer needed for Gemini by default, but kept or refactored if needed.
     # LLM_BASE_URL: str = "https://generativelanguage.googleapis.com" 
     LLM_MODEL_NAME: str = "gemini-2.5-flash"
