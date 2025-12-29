@@ -1,0 +1,8 @@
+{
+  "documents": [
+    {
+      "document_name": "Red Square Image",
+      "fields": {}
+    }
+  ]
+}

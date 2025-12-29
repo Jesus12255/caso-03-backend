@@ -1,0 +1,1 @@
+cannot access local variable 'full_text' where it is not associated with a value

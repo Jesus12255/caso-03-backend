@@ -7,9 +7,10 @@ class Settings(BaseSettings):
     BACKEND_CORS_ORIGINS: List[str] = ["*"]
     LOG_LEVEL: str = "INFO"
 
-    LLM_API_KEY: str = "df0b6c7119ed4e3a846c7c66f1c88197.Sf7w0bChqTnDqGuUQSJ8UIfd" 
-    LLM_BASE_URL: str = "https://ollama.com/api" 
-    LLM_MODEL_NAME: str = "qwen3-vl:235b-cloud"
+    LLM_API_KEY: str # Value will be loaded from .env file
+    # LLM_BASE_URL no longer needed for Gemini by default, but kept or refactored if needed.
+    # LLM_BASE_URL: str = "https://generativelanguage.googleapis.com" 
+    LLM_MODEL_NAME: str = "gemini-2.5-flash"
 
     model_config = SettingsConfigDict(
         env_file=".env",

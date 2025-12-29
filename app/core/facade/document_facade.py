@@ -9,3 +9,19 @@ class DocumentFacade(ABC):
     @abstractmethod
     async def save(self, request: List[DocumentRequest]) -> BaseOperacionResponse:
         pass
+
+    @abstractmethod
+    async def list(self) -> List[dict]:
+        pass
+
+    @abstractmethod
+    async def delete(self, id: str) -> BaseOperacionResponse:
+        pass
+
+    @abstractmethod
+    async def update(self, id: str, request: DocumentRequest) -> BaseOperacionResponse:
+        pass
+
+    @abstractmethod
+    async def update(self, id: str, request: DocumentRequest) -> BaseOperacionResponse:
+        pass
