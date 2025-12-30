@@ -12,8 +12,10 @@ class ExtractionEngineImpl(ExtractionEngine):
     async def extract_single_document(self, base64_data: str, mime_type: str, page_count: int, start_index: int) -> list[dict]:
         model = genai.GenerativeModel(settings.LLM_MODEL_NAME)
         
-        # Enhanced prompt for multi-page document extraction
-        prompt = f"""Analiza este documento por completo ({page_count} páginas). 
+        is_pdf = mime_type == "application/pdf"
+        
+        if is_pdf:
+            prompt = f"""Analiza este documento por completo ({page_count} páginas). 
 Debes extraer TODOS los datos, tablas y campos de CADA PÁGINA por separado.
 
 Es CRITICO que devuelvas exactamente una lista (array) de JSON, donde cada objeto represente una página física del documento.
@@ -26,14 +28,28 @@ Formato requerido:
     "fields": {{ "campo": "valor" }}
   }},
   ... y así sucesivamente para las {page_count} páginas, incrementando el document_index.
-]
+]"""
+        else:
+            prompt = f"""Analiza esta imagen. Extrae TODOS los datos, tablas y campos.
 
-Si una página es ilegible, devuelve el objeto igualmente con campos null. NO inventes datos."""
+Es CRITICO que devuelvas exactamente una lista (array) de JSON con UN solo objeto.
+
+Formato requerido:
+[
+  {{
+    "document_index": {start_index},
+    "document_name": "Nombre descriptivo de la imagen",
+    "fields": {{ "campo": "valor" }}
+  }}
+]"""
+
+        prompt += "\n\nSi el contenido es ilegible, devuelve el objeto igualmente con campos null. NO inventes datos."
 
         contents = [
             prompt,
             {"mime_type": mime_type, "data": base64_data}
         ]
+
 
         max_retries = 3
         retry_delay = 2
@@ -46,13 +62,30 @@ Si una página es ilegible, devuelve el objeto igualmente con campos null. NO in
                 )
                 
                 if response.text:
-                    result_data = json.loads(response.text)
+                    text = response.text.strip()
+                    # Remove markdown code blocks if present
+                    if text.startswith("```"):
+                        lines = text.splitlines()
+                        if lines[0].startswith("```"):
+                            lines = lines[1:]
+                        if lines[-1].startswith("```"):
+                            lines = lines[:-1]
+                        text = "\n".join(lines).strip()
+                    
+                    try:
+                        result_data = json.loads(text)
+                    except json.JSONDecodeError:
+                        # Fallback for very simple errors or if there's trailing text
+                        print(f"JSON Decode Error for text: {text}")
+                        return [{"document_index": start_index, "error": "Invalid JSON response from LLM"}]
+
                     # Force result to be a list if LLM returns a single object
                     if isinstance(result_data, dict):
                         return [result_data]
                     return result_data
                 else:
                     return [{"document_index": start_index, "error": "Empty response"}]
+
 
             except Exception as e:
                 error_str = str(e)
