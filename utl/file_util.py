@@ -13,6 +13,10 @@ class FileUtil:
     @staticmethod
     def is_valid_pdf(data: bytes) -> bool:
         try:
+            # Check for PDF magic number %PDF-
+            if not data.startswith(b"%PDF-"):
+                return False
+                
             # Intentar abrir el PDF con PyMuPDF desde el stream de bytes
             doc = fitz.open(stream=data, filetype="pdf")
             if doc.page_count > 0:
@@ -22,6 +26,7 @@ class FileUtil:
             return False
         except Exception:
             return False
+
 
     @staticmethod
     def is_valid_image(data: bytes) -> bool:
