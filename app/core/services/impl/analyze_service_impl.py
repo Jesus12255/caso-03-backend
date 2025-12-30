@@ -40,66 +40,78 @@ class AnalyzeServiceImpl(AnalyzeService):
         return results
 
     async def upload_stream(self, files_data: List[Dict[str, Any]]):
-        all_pages_tasks = []
+        all_docs_tasks = []
         total_files = len(files_data)
         
-        # 1. Prepare all pages
-        global_page_index = 0
+        # 1. Prepare all documents and calculate global indices
+        current_global_page_index = 1
         for idx, file_data in enumerate(files_data):
             filename = file_data.get("filename")
             content = file_data.get("content")
             
-            yield self._build_sse_event({"thinking": f"Procesando archivo {idx + 1}/{total_files}: {filename}...\n"})
+            yield self._build_sse_event({"thinking": f"Preparando archivo {idx + 1}/{total_files}: {filename}...\n"})
             
-            pages = self.to_base64_from_bytes(content, filename)
+            doc_prep = self.prepare_document_for_llm(content, filename)
             
-            if not pages:
-                 yield self._build_sse_event({"thinking": f"[WARN] Archivo {filename} inválido o vacío\n"})
+            if not doc_prep:
+                 yield self._build_sse_event({"thinking": f"[WARN] Archivo {filename} no soportado o vacío\n"})
                  continue
 
-            for page_img in pages:
-                global_page_index += 1
-                # Schedule task
-                task = self.extraction_engine.extract_single_page(page_img, global_page_index)
-                all_pages_tasks.append(task)
+            page_count = doc_prep["page_count"]
+            start_index = current_global_page_index
+            
+            # Schedule task for the entire document, passing page info
+            task = self.extraction_engine.extract_single_document(
+                doc_prep["base64"], 
+                doc_prep["mime_type"], 
+                page_count,
+                start_index
+            )
+            all_docs_tasks.append((task, filename, page_count))
+            
+            # Increment global index for next file
+            current_global_page_index += page_count
 
-        if not all_pages_tasks:
-             yield self._build_sse_event({"thinking": "[ERROR] No se encontraron imágenes válidas.\n"})
+        if not all_docs_tasks:
+             yield self._build_sse_event({"thinking": "[ERROR] No se encontraron documentos válidos.\n"})
              return
 
-        total_pages = len(all_pages_tasks)
-        yield self._build_sse_event({"thinking": f"Analizando {total_pages} páginas en paralelo...\n"})
+        total_files_to_process = len(all_docs_tasks)
+        yield self._build_sse_event({"thinking": f"Analizando {total_files_to_process} archivos en paralelo...\n"})
 
         # 2. Run in parallel
         try:
-            # We use as_completed to stream results as they finish
-            completed_count = 0
-            
-            # documents array to accumulate results
+            completed_files_count = 0
             documents = []
 
-            for future in asyncio.as_completed(all_pages_tasks):
-                result = await future
-                completed_count += 1
-                
-                # Yield progress or partial result
-                yield self._build_sse_event({"thinking": f"Pagina {result.get('document_index')} completada ({completed_count}/{total_pages})\n"})
-                
-                # Check for errors in result
-                if result.get("error"):
-                    yield self._build_sse_event({"thinking": f"[ERROR] Page {result.get('document_index')}: {result.get('error')}\n"})
-                else:
-                    # Construct the document object structure expected by frontend
-                    doc_obj = {
-                        "document_index": result.get("document_index"),
-                        "document_name": result.get("document_name") or f"Page {result.get('document_index')}",
-                        "fields": result.get("fields", {})
-                    }
-                    documents.append(doc_obj)
+            # Extract futures and map them back to metadata
+            futures = [t[0] for t in all_docs_tasks]
+            metadata_map = {hash(f): (t[1], t[2]) for f, t in zip(futures, all_docs_tasks)}
 
-            # 3. Send Final JSON
-            # The frontend expects a JSON with "documents": [...]
-            # We can send it as a "response" token.
+            for future in asyncio.as_completed(futures):
+                results = await future # This is now a LIST of page dicts
+                completed_files_count += 1
+                
+                fname, p_count = metadata_map.get(hash(future), ("Documento", 1))
+                yield self._build_sse_event({"thinking": f"Archivo '{fname}' ({p_count} pág) completado ({completed_files_count}/{total_files_to_process})\n"})
+                
+                # Check for errors in the first result of the list if it's a list with error
+                if isinstance(results, list) and len(results) > 0 and results[0].get("error"):
+                    yield self._build_sse_event({"thinking": f"[ERROR] {fname}: {results[0].get('error')}\n"})
+                else:
+                    # results is a list of page objects
+                    for page_result in results:
+                        doc_obj = {
+                            "document_index": page_result.get("document_index"),
+                            "document_name": page_result.get("document_name") or f"{fname} - Pág {page_result.get('document_index')}",
+                            "fields": page_result.get("fields", {})
+                        }
+                        documents.append(doc_obj)
+                        # Optional: yield individual page completion if desired
+                        # yield self._build_sse_event({"thinking": f"Pagina {doc_obj['document_index']} extraída.\n"})
+
+            # 3. Send Final JSON (sorted by document_index to keep order)
+            documents.sort(key=lambda x: x.get("document_index", 0))
             final_payload = json.dumps({"documents": documents})
             yield self._build_sse_event({"response": final_payload})
 
@@ -114,24 +126,40 @@ class AnalyzeServiceImpl(AnalyzeService):
     def _build_sse_event(self, data: Dict[str, Any]) -> str:
         return f"data: {json.dumps(data)}\n\n"
 
-    def to_base64_from_bytes(self, content: bytes, filename: str) -> List[str]:
-        base64_results = []
-
+    def prepare_document_for_llm(self, content: bytes, filename: str) -> Dict[str, Any]:
+        """Returns base64, mime_type, and page_count for the document."""
         if FileUtil.is_valid_pdf(content):
             try:
                 doc = fitz.open(stream=BytesIO(content), filetype="pdf")
-                for page in doc:
-                    # Optimization: Reduced resolution from 2 to 1.5
-                    pix = page.get_pixmap(matrix=fitz.Matrix(1.5, 1.5))
-                    img_bytes = pix.tobytes("jpeg")
-                    base64_results.append(base64.b64encode(img_bytes).decode("utf-8"))
+                page_count = doc.page_count
                 doc.close()
-
+                return {
+                    "base64": base64.b64encode(content).decode("utf-8"),
+                    "mime_type": "application/pdf",
+                    "page_count": page_count
+                }
             except Exception as e:
-                print(f"Error procesando PDF: {e}")
-                return []
-
+                print(f"Error counting pages: {e}")
+                return None
+                
         elif FileUtil.is_valid_image(content):
-            base64_results.append(base64.b64encode(content).decode("utf-8"))
+            mime_type = "image/jpeg"
+            if filename.lower().endswith(".png"):
+                mime_type = "image/png"
+            elif filename.lower().endswith(".webp"):
+                mime_type = "image/webp"
+            
+            return {
+                "base64": base64.b64encode(content).decode("utf-8"),
+                "mime_type": mime_type,
+                "page_count": 1
+            }
+        return None
 
-        return base64_results
+
+    def to_base64_from_bytes(self, content: bytes, filename: str) -> List[str]:
+        # Implementation kept for compatibility with 'upload' method if needed,
+        # but renamed or refactored. For now, I'll redirect it.
+        doc = self.prepare_document_for_llm(content, filename)
+        return [doc["base64"]] if doc else []
+

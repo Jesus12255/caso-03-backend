@@ -9,31 +9,50 @@ genai.configure(api_key=settings.LLM_API_KEY)
 
 class ExtractionEngineImpl(ExtractionEngine):
 
-    async def extract_single_page(self, base64_image: str, page_index: int) -> dict:
+    async def extract_single_document(self, base64_data: str, mime_type: str, page_count: int, start_index: int) -> list[dict]:
         model = genai.GenerativeModel(settings.LLM_MODEL_NAME)
         
-        # Simplified prompt for single image
-        prompt = f"""Analiza esta imagen (Página {page_index}). Extrae TODOS los datos, tablas y campos en formato JSON estructurado.
+        is_pdf = mime_type == "application/pdf"
+        
+        if is_pdf:
+            prompt = f"""Analiza este documento por completo ({page_count} páginas). 
+Debes extraer TODOS los datos, tablas y campos de CADA PÁGINA por separado.
+
+Es CRITICO que devuelvas exactamente una lista (array) de JSON, donde cada objeto represente una página física del documento.
 
 Formato requerido:
-{{
-  "document_index": {page_index},
-  "document_name": "GENERAR UN NOMBRE CORTO Y DESCRIPTIVO BASADO EN EL CONTENIDO (Ej: Factura #123 Acme, Contrato de Arrendamiento)",
-  "fields": {{
-    "campo": "valor"
-  }}
-}}
+[
+  {{
+    "document_index": {start_index}, 
+    "document_name": "Nombre descriptivo página 1",
+    "fields": {{ "campo": "valor" }}
+  }},
+  ... y así sucesivamente para las {page_count} páginas, incrementando el document_index.
+]"""
+        else:
+            prompt = f"""Analiza esta imagen. Extrae TODOS los datos, tablas y campos.
 
-NO inventes datos. Si es ilegible, reporta null."""
+Es CRITICO que devuelvas exactamente una lista (array) de JSON con UN solo objeto.
+
+Formato requerido:
+[
+  {{
+    "document_index": {start_index},
+    "document_name": "Nombre descriptivo de la imagen",
+    "fields": {{ "campo": "valor" }}
+  }}
+]"""
+
+        prompt += "\n\nSi el contenido es ilegible, devuelve el objeto igualmente con campos null. NO inventes datos."
 
         contents = [
             prompt,
-            {"mime_type": "image/jpeg", "data": base64_image} # Assuming jpeg from pdf conversion or raw
+            {"mime_type": mime_type, "data": base64_data}
         ]
 
-        # Optimized Retry Logic: Faster backoff for parallel requests
+
         max_retries = 3
-        retry_delay = 2 # Start with 2 seconds
+        retry_delay = 2
         
         for attempt in range(max_retries):
             try:
@@ -42,34 +61,50 @@ NO inventes datos. Si es ilegible, reporta null."""
                     generation_config={"response_mime_type": "application/json"}
                 )
                 
-                # Parse immediately to ensure valid JSON
                 if response.text:
-                    return json.loads(response.text)
+                    text = response.text.strip()
+                    # Remove markdown code blocks if present
+                    if text.startswith("```"):
+                        lines = text.splitlines()
+                        if lines[0].startswith("```"):
+                            lines = lines[1:]
+                        if lines[-1].startswith("```"):
+                            lines = lines[:-1]
+                        text = "\n".join(lines).strip()
+                    
+                    try:
+                        result_data = json.loads(text)
+                    except json.JSONDecodeError:
+                        # Fallback for very simple errors or if there's trailing text
+                        print(f"JSON Decode Error for text: {text}")
+                        return [{"document_index": start_index, "error": "Invalid JSON response from LLM"}]
+
+                    # Force result to be a list if LLM returns a single object
+                    if isinstance(result_data, dict):
+                        return [result_data]
+                    return result_data
                 else:
-                    return {"document_index": page_index, "error": "Empty response"}
+                    return [{"document_index": start_index, "error": "Empty response"}]
+
 
             except Exception as e:
                 error_str = str(e)
                 if "FreeTier" in error_str or "PerDay" in error_str:
-                     print(f"Daily Quota Exceeded on page {page_index}: {e}")
+                     print(f"Daily Quota Exceeded: {e}")
                      raise e
 
-                # Rate Limit -> Retry
                 if "429" in error_str or "ResourceExhausted" in error_str:
                     if attempt < max_retries - 1:
                         await asyncio.sleep(retry_delay)
-                        retry_delay *= 2 # Exponential backoff: 2, 4, 8...
+                        retry_delay *= 2
                         continue
                 
-                # If we're here, it's a non-retriable error or max retries exceeded
-                print(f"Error processing page {page_index}: {e}")
-                return {"document_index": page_index, "error": str(e)}
+                print(f"Error processing documents starting at {start_index}: {e}")
+                return [{"document_index": start_index, "error": str(e)}]
         
-        return {"document_index": page_index, "error": "Max retries exceeded"}
+        return [{"document_index": start_index, "error": "Max retries exceeded"}]
 
-    async def extract_stream(self, base64_images: list[str]):
-        # Legacy/Sequential implementation - kept for interface compatibility or fallback
-        model = genai.GenerativeModel(settings.LLM_MODEL_NAME)
-        # ... (rest of old implementation if needed, or just warn)
-        # For this task, we assume the service will switch to extract_single_page.
+
+    async def extract_stream(self, documents_data: list[dict]):
+        # Updated to match interface, though AnalyzeServiceImpl now uses extract_single_document directly in parallel
         pass
